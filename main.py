@@ -71,14 +71,7 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
         resume_text, jd_text
     )
 
-    # -------- Phase 7: Hybrid Score --------
-    final_score = (
-        0.50 * semantic_score
-        + 0.30 * skill_score
-        + 0.20 * requirement_coverage
-    )
-
-    # -------- Phase 8: LLM Reasoning (optional) --------
+    # -------- Phase 7: LLM Reasoning (optional) --------
     explanations: List[Dict] = []
     improvement_suggestions = ""
 
@@ -91,7 +84,7 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
         )[:5]
 
         for match in top_matches:
-            explanation = explain_match(
+            llm_result = explain_match(
                 match["jd_text"],
                 match["matched_resume_text"],
             )
@@ -99,7 +92,8 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
                 "jd_text": match["jd_text"],
                 "resume_text": match["matched_resume_text"],
                 "score": match["similarity_score"],
-                "explanation": explanation,
+                "llm_score": llm_result["llm_score"],
+                "explanation": llm_result["explanation"],
             })
 
         # Improvement suggestions
@@ -111,12 +105,38 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
             missing_skills, weak_matches
         )
 
+    # -------- Phase 8: Score Adjustments & Penalties --------
+    # 1. Skill Gap Penalty (Vector Base)
+    skill_penalty_factor = 1.0 - (0.35 * (1.0 - skill_score))
+    adjusted_semantic_score = semantic_score * skill_penalty_factor
+    adjusted_coverage = requirement_coverage * (0.8 + 0.2 * skill_score)
+    
+    # Base Hybrid Score (Purely algorithmic/vector-based)
+    base_score = (
+        0.50 * adjusted_semantic_score
+        + 0.30 * skill_score
+        + 0.20 * adjusted_coverage
+    )
+
+    # 2. Integrate LLM Intelligence
+    # If LLM reasoning is active, it generated scores (0.0 to 1.0) for the top reqs 
+    # based on actual logic (missing/irrelevant context). Blend it with the base score.
+    final_score = base_score
+    avg_llm_score = 0.0
+    
+    if enable_llm and explanations:
+        avg_llm_score = sum(exp["llm_score"] for exp in explanations) / len(explanations)
+        # Blend: 60% traditional vector engine, 40% LLM intelligence
+        final_score = (base_score * 0.60) + (avg_llm_score * 0.40)
+
     # -------- Build Result --------
     return {
         "final_score": round(final_score, 4),
-        "semantic_score": round(semantic_score, 4),
+        "semantic_score": round(adjusted_semantic_score, 4),
         "skill_score": round(skill_score, 4),
-        "requirement_coverage": round(requirement_coverage, 4),
+        "requirement_coverage": round(adjusted_coverage, 4),
+        "raw_semantic_score": round(semantic_score, 4),
+        "llm_alignment_score": round(avg_llm_score, 4) if explanations else None,
         "section_grid": sim_result["section_grid"],
         "resume_sections": sim_result["resume_sections"],
         "jd_categories": sim_result["jd_categories"],
