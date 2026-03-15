@@ -1,0 +1,3 @@
+We are looking for an AI Engineer with experience in Python,
+AWS deployment, vector databases, and retrieval augmented generation (RAG).
+Experience with ML model deployment required.

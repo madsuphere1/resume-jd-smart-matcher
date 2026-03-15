@@ -1,0 +1,3 @@
+Machine Learning Engineer with experience in Python, AWS, RAG systems,
+vector databases, and deploying ML models using FastAPI.
+Built automation pipelines and worked with embeddings.
