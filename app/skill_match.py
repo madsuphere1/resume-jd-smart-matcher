@@ -15,14 +15,15 @@ from app.embeddings import embed_texts
 def dynamic_skill_match(
     resume_text: str,
     jd_text: str,
-    match_threshold: float = 0.65,
+    match_threshold: float = 0.75,
 ) -> Tuple[float, List[Dict], List[Dict]]:
     """
     Semantically match skills extracted from resume and JD.
 
     Returns
     -------
-    skill_score : float in [0, 1] — fraction of JD skills matched
+    skill_score : float in [0, 1] — hybrid skill match score
+                  (60% match ratio + 40% average match quality)
     matched     : list of {"jd_skill", "resume_skill", "score"}
     missing     : list of {"jd_skill", "best_score"}
     """
@@ -56,5 +57,10 @@ def dynamic_skill_match(
                 "best_score": round(best_score, 3),
             })
 
-    skill_score = len(matched) / len(jd_skills) if jd_skills else 0.0
+    # Hybrid score: breadth (did you match most skills?) + quality (how well?)
+    match_ratio = len(matched) / len(jd_skills) if jd_skills else 0.0
+    avg_quality = (
+        float(np.mean([m["score"] for m in matched])) if matched else 0.0
+    )
+    skill_score = 0.60 * match_ratio + 0.40 * avg_quality
     return skill_score, matched, missing

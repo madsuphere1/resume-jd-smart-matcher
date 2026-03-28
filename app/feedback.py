@@ -6,10 +6,70 @@ Uses Ollama (local) for:
   2. Resume improvement suggestions based on gaps
 """
 
+import re
 import ollama
 from typing import List, Dict
 
 _MODEL = "qwen2.5:1.5b"
+
+
+def _extract_score(text: str) -> int | None:
+    """
+    Robustly extract a numeric score from LLM output.
+    Handles formats like:
+      SCORE: 75         **Score:** 72       Score = 80
+      score: 65/100     Rating: 40          75/100
+    """
+    # Strip markdown bold/italic markers for easier matching
+    clean = text.replace("*", "").replace("_", "")
+
+    # Pattern 1: "SCORE" or "Rating" followed by separator then a number
+    m = re.search(
+        r'(?:score|rating|match)\s*[:=\-]\s*(\d{1,3})',
+        clean, re.IGNORECASE
+    )
+    if m:
+        return int(m.group(1))
+
+    # Pattern 2: number followed by /100 or % anywhere
+    m = re.search(r'(\d{1,3})\s*(?:/\s*100|%)', clean)
+    if m:
+        return int(m.group(1))
+
+    # Pattern 3: First standalone number on a line that starts with score-like word
+    for line in clean.split("\n"):
+        stripped = line.strip()
+        if re.match(r'(?:score|rating|match)', stripped, re.IGNORECASE):
+            nums = re.findall(r'\d{1,3}', stripped)
+            if nums:
+                return int(nums[0])
+
+    return None
+
+
+def _extract_explanation(text: str) -> str:
+    """Extract explanation portion from LLM output."""
+    clean = text.replace("*", "").replace("_", "")
+
+    # Try to find text after "EXPLANATION:" or "Explanation:" etc.
+    m = re.search(r'explanation\s*[:]\s*(.*)', clean, re.IGNORECASE | re.DOTALL)
+    if m:
+        return m.group(1).strip()
+
+    # Fallback: everything after the score line
+    lines = clean.split("\n")
+    capture = False
+    parts = []
+    for line in lines:
+        if capture and line.strip():
+            parts.append(line.strip())
+        if re.match(r'(?:score|rating)', line.strip(), re.IGNORECASE):
+            capture = True
+    if parts:
+        return " ".join(parts)
+
+    # Last resort: return full text
+    return text.strip()
 
 
 def explain_match(jd_requirement: str, resume_chunk: str) -> Dict[str, str]:
@@ -17,57 +77,50 @@ def explain_match(jd_requirement: str, resume_chunk: str) -> Dict[str, str]:
     Ask the LLM whether the candidate's resume chunk satisfies a JD requirement.
     Returns a dict with 'llm_score' (0.0 to 1.0) and 'explanation'.
     """
-    prompt = f"""You are an expert strict ATS resume analyst.
+    prompt = f"""Rate how well this resume section matches the job requirement.
 
 Job Requirement:
 {jd_requirement}
 
-Candidate Resume Section:
+Resume Section:
 {resume_chunk}
 
-Task:
-Evaluate how well the candidate satisfies this EXACT requirement.
-Be strict: if they mention "Python" but the requirement is "Python and AWS", and they don't have AWS, the score should drop significantly based on importance.
+Instructions:
+- Give a score from 0 to 100 (0 = no match, 100 = perfect match)
+- Be strict: partial matches should get partial scores (e.g. 40-60)
+- If the resume section is unrelated, give 0-20
+- If it partially matches, give 30-60
+- If it matches well but is missing something, give 60-80
+- If it fully matches, give 80-100
 
-Format your response EXACTLY like this:
-SCORE: [An integer from 0 to 100]
-EXPLANATION: [2-3 sentences explaining the score, specifically noting missing or irrelevant details.]"""
-
-    default_res = {"llm_score": 0.50, "explanation": "LLM extraction failed."}
+Reply in this format:
+SCORE: [number]
+EXPLANATION: [2-3 sentences about what matches and what is missing]"""
 
     try:
         response = ollama.chat(
             model=_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1, "num_predict": 150},
+            options={"temperature": 0.1, "num_predict": 250},
         )
         content = response["message"]["content"].strip()
-        
-        # Parse output
-        lines = content.split("\n")
-        score_val = 50
-        explanation = content
-        
-        for line in lines:
-            if line.upper().startswith("SCORE:"):
-                s_str = line.split(":", 1)[1].strip()
-                import re
-                nums = re.findall(r'\d+', s_str)
-                if nums:
-                    score_val = int(nums[0])
-            elif line.upper().startswith("EXPLANATION:"):
-                explanation = line.split(":", 1)[1].strip()
-                
-        # If explanation is multi-line grab the rest
-        if "EXPLANATION:" in content:
-            explanation = content.split("EXPLANATION:", 1)[1].strip()
 
-        # Clamp between 0 and 100, then convert to 0.0 - 1.0
-        score_val = max(0, min(100, score_val))
+        # Extract score with robust parser
+        score_val = _extract_score(content)
+
+        if score_val is None:
+            # Could not parse any score — use a neutral fallback but flag it
+            score_val = 50
+            explanation = f"(Score parsing failed) {content}"
+        else:
+            # Clamp between 0 and 100
+            score_val = max(0, min(100, score_val))
+            explanation = _extract_explanation(content)
+
         return {"llm_score": round(score_val / 100.0, 2), "explanation": explanation}
+
     except Exception as e:
-        default_res["explanation"] = f"LLM unavailable: {e}"
-        return default_res
+        return {"llm_score": 0.50, "explanation": f"LLM unavailable: {e}"}
 
 
 def generate_improvement_suggestions(

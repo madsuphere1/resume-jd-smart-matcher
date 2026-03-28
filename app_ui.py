@@ -346,9 +346,8 @@ if st.button("🚀 Analyze Resume", type="primary", use_container_width=True):
     </div>
     """, unsafe_allow_html=True)
 
-    if result.get("raw_semantic_score", 0) > result["semantic_score"]:
-        penalty_pts = (result["raw_semantic_score"] - result["semantic_score"]) * 100
-        st.info(f"**📉 Skill Gap Penalty Applied:** Semantic match was originally **{result['raw_semantic_score']*100:.0f}%**, but was reduced by **{penalty_pts:.0f}%** due to missing required skills.")
+
+
 
     # ── Chunk counts ──
     c1, c2 = st.columns(2)

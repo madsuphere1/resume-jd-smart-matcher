@@ -105,17 +105,13 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
             missing_skills, weak_matches
         )
 
-    # -------- Phase 8: Score Adjustments & Penalties --------
-    # 1. Skill Gap Penalty (Vector Base)
-    skill_penalty_factor = 1.0 - (0.35 * (1.0 - skill_score))
-    adjusted_semantic_score = semantic_score * skill_penalty_factor
-    adjusted_coverage = requirement_coverage * (0.8 + 0.2 * skill_score)
-    
-    # Base Hybrid Score (Purely algorithmic/vector-based)
+    # -------- Phase 8: Score Composition --------
+    # Now that skill_score and requirement_coverage are quality-weighted
+    # (not trivially 1.0), we use a direct weighted combination.
     base_score = (
-        0.50 * adjusted_semantic_score
+        0.50 * semantic_score
         + 0.30 * skill_score
-        + 0.20 * adjusted_coverage
+        + 0.20 * requirement_coverage
     )
 
     # 2. Integrate LLM Intelligence
@@ -132,10 +128,9 @@ def run(resume_text: str, jd_text: str, enable_llm: bool = True) -> Dict:
     # -------- Build Result --------
     return {
         "final_score": round(final_score, 4),
-        "semantic_score": round(adjusted_semantic_score, 4),
+        "semantic_score": round(semantic_score, 4),
         "skill_score": round(skill_score, 4),
-        "requirement_coverage": round(adjusted_coverage, 4),
-        "raw_semantic_score": round(semantic_score, 4),
+        "requirement_coverage": round(requirement_coverage, 4),
         "llm_alignment_score": round(avg_llm_score, 4) if explanations else None,
         "section_grid": sim_result["section_grid"],
         "resume_sections": sim_result["resume_sections"],

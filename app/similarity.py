@@ -16,7 +16,7 @@ def compute_section_similarity(
     jd_chunks: List[Dict],
     resume_embeddings: np.ndarray,
     jd_embeddings: np.ndarray,
-    match_threshold: float = 0.50,
+    match_threshold: float = 0.65,
 ) -> Dict:
     """
     Section-wise full outer join similarity.
@@ -29,7 +29,7 @@ def compute_section_similarity(
     dict with keys:
         section_grid    : dict[(resume_section, jd_category)] → best cosine score
         semantic_score  : float — mean of per-JD-requirement best-match scores
-        requirement_coverage : float — fraction of JD reqs matched above threshold
+        requirement_coverage : float — quality-weighted coverage of JD requirements
         per_jd_matches  : list of per-JD-requirement best match dicts
         similarity_matrix : np.ndarray (n_resume × n_jd)
         resume_sections : sorted list of unique resume section labels
@@ -90,7 +90,11 @@ def compute_section_similarity(
     # ---- Aggregate scores ----
     best_per_jd = sim_matrix.max(axis=0)  # best resume match for each JD chunk
     semantic_score = float(np.mean(best_per_jd))
-    requirement_coverage = float(np.mean(best_per_jd >= match_threshold))
+
+    # Hybrid coverage: breadth (fraction above threshold) + quality (avg scores)
+    coverage_ratio = float(np.mean(best_per_jd >= match_threshold))
+    avg_match_quality = float(np.mean(np.clip(best_per_jd, 0.0, 1.0)))
+    requirement_coverage = 0.60 * coverage_ratio + 0.40 * avg_match_quality
 
     return {
         "section_grid": section_grid,
